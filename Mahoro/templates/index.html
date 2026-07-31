@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title> Ping Monitor - Network Management System</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <div class="app">
+        <!-- Navigation -->
+        <nav class="navbar">
+            <div class="navbar-container">
+                <div class="navbar-brand">
+                    <span class="brand-icon">📡</span>
+                    <span class="brand-text">Network Monitor System</span>
+                </div>
+                <div class="navbar-menu">
+                    <button class="nav-btn active" data-tab="dashboard">Dashboard</button>
+                    <button class="nav-btn" data-tab="devices">Devices</button>
+                    <button class="nav-btn" data-tab="analytics">Analytics</button>
+                    <button class="nav-btn" data-tab="alerts">Alerts</button>
+                </div>
+                <div class="navbar-status" id="networkStatus">
+                    <span class="status-dot online"></span> Network OK
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <div class="container">
+            <!-- Dashboard Tab -->
+            <section id="dashboard-tab" class="tab-content active">
+                <!-- Network Summary -->
+                <div class="section-title">Network Overview</div>
+                <div class="summary-grid">
+                    <div class="summary-card">
+                        <div class="summary-icon total">📊</div>
+                        <div class="summary-info">
+                            <div class="summary-label">Total Devices</div>
+                            <div class="summary-value" id="totalDevices">0</div>
+                        </div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-icon online">✓</div>
+                        <div class="summary-info">
+                            <div class="summary-label">Online</div>
+                            <div class="summary-value" id="onlineCount">0</div>
+                        </div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-icon offline">✕</div>
+                        <div class="summary-info">
+                            <div class="summary-label">Offline</div>
+                            <div class="summary-value" id="offlineCount">0</div>
+                        </div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-icon health">❤️</div>
+                        <div class="summary-info">
+                            <div class="summary-label">Network Health</div>
+                            <div class="summary-value" id="networkHealth">0%</div>
+                        </div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-icon latency">⚡</div>
+                        <div class="summary-info">
+                            <div class="summary-label">Avg Latency</div>
+                            <div class="summary-value" id="avgLatency">0ms</div>
+                        </div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-icon alerts">⚠️</div>
+                        <div class="summary-info">
+                            <div class="summary-label">Active Alerts</div>
+                            <div class="summary-value" id="alertCount">0</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Monitoring Controls -->
+                <div class="card monitoring-section">
+                    <h3>🔵 Automatic Ping Monitoring</h3>
+                    <div class="monitoring-controls">
+                        <div class="monitoring-status">
+                            <span id="monitoringLabel">Status:</span>
+                            <span id="monitoringStatusIndicator" class="status-indicator stopped">STOPPED</span>
+                        </div>
+                        <div class="monitoring-buttons">
+                            <button id="startMonitoringBtn" class="btn btn-success">▶ Start Monitoring</button>
+                            <button id="stopMonitoringBtn" class="btn btn-danger" style="display: none;">⏸ Stop Monitoring</button>
+                        </div>
+                        <div class="monitoring-info">
+                            <small>Automatic monitoring will continuously ping all devices every 5 seconds and record latency/connectivity data</small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Charts Section -->
+                <div class="charts-row">
+                    <div class="card">
+                        <h3>Network Status Distribution</h3>
+                        <div class="chart-container">
+                            <canvas id="statusChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <h3>Device Latency Comparison</h3>
+                        <div class="chart-container">
+                            <canvas id="latencyChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Devices by Group -->
+                <div class="card">
+                    <h3>Devices by Group</h3>
+                    <div id="groupedDevices" class="grouped-devices"></div>
+                </div>
+            </section>
+
+            <!-- Devices Tab -->
+            <section id="devices-tab" class="tab-content">
+                <!-- Add Device Section -->
+                <div class="card add-device-section">
+                    <h2>Add New Device to Monitor</h2>
+                    <form id="deviceForm" class="form-grid">
+                        <div class="form-group">
+                            <label for="deviceName">Device Name *</label>
+                            <input type="text" id="deviceName" placeholder="e.g., Main Router" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="deviceIP">IP Address *</label>
+                            <input type="text" id="deviceIP" placeholder="e.g., 192.168.1.1" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="deviceGroup">Group</label>
+                            <select id="deviceGroup">
+                                <option value="">-- No Group --</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="deviceInterval">Ping Interval (s)</label>
+                            <input type="number" id="deviceInterval" value="5" min="1" max="300">
+                        </div>
+                        <div class="form-group">
+                            <label for="deviceTimeout">Timeout (s)</label>
+                            <input type="number" id="deviceTimeout" value="2" min="1" max="10">
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-full">Add Device to Network</button>
+                    </form>
+                    <div id="formMessage" class="message"></div>
+                </div>
+
+                <!-- Device Groups Section -->
+                <div class="card">
+                    <h2>Device Groups</h2>
+                    <button class="btn btn-secondary" id="createGroupBtn" style="margin-bottom: 20px;">+ Create New Group</button>
+                    <div class="groups-grid" id="groupsList"></div>
+                </div>
+
+                <!-- Devices List -->
+                <div class="card devices-section">
+                    <h2>All Monitored Devices</h2>
+                    <div id="devicesList" class="devices-grid">
+                        <p class="loading">Loading devices...</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Analytics Tab -->
+            <section id="analytics-tab" class="tab-content">
+                <div class="analytics-container">
+                    <h2>Network Analytics & Reports</h2>
+                    
+                    <!-- Device Statistics -->
+                    <div class="card">
+                        <h3>Device Performance Metrics</h3>
+                        <div id="statisticsList" class="statistics-list"></div>
+                    </div>
+
+                    <!-- Timeline Section -->
+                    <div class="card">
+                        <h3>Device Status Timeline (Status Transitions)</h3>
+                        <select id="timelineDeviceSelect" class="form-control" style="margin-bottom: 20px;">
+                            <option value="">-- Select Device --</option>
+                        </select>
+                        <div id="timelineContainer" class="timeline-container"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Alerts Tab -->
+            <section id="alerts-tab" class="tab-content">
+                <div class="alerts-container">
+                    <h2>System Alerts & Notifications</h2>
+                    
+                    <div class="alerts-filter">
+                        <button class="btn btn-secondary" id="filterAllAlerts">All Alerts</button>
+                        <button class="btn btn-secondary" id="filterUnacknowledged">Unacknowledged</button>
+                    </div>
+
+                    <div id="alertsList" class="alerts-list">
+                        <p class="loading">Loading alerts...</p>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <!-- Device Detail Modal -->
+    <div id="deviceModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <div id="modalBody"></div>
+        </div>
+    </div>
+
+    <!-- Group Creation Modal -->
+    <div id="groupModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>Create Device Group</h2>
+            <form id="groupForm" class="form-grid" style="margin-top: 20px;">
+                <div class="form-group">
+                    <label for="groupName">Group Name</label>
+                    <input type="text" id="groupName" placeholder="e.g., Critical Servers" required>
+                </div>
+                <div class="form-group">
+                    <label for="groupDescription">Description</label>
+                    <textarea id="groupDescription" placeholder="Optional description" rows="3"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="groupColor">Color</label>
+                    <input type="color" id="groupColor" value="#667eea">
+                </div>
+                <button type="submit" class="btn btn-primary btn-full">Create Group</button>
+            </form>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
+
