@@ -8,7 +8,7 @@ let state = {
     alerts: [],
     charts: {},
     currentTab: 'dashboard',
-    updateInterval: null
+    refreshInterval: null
 };
 
 // DOM Elements
@@ -22,12 +22,30 @@ const groupModal = document.getElementById('groupModal');
 const closeButtons = document.querySelectorAll('.close');
 
 // Initialize Application
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    const authenticated = await checkAuthStatus();
+    if (!authenticated) {
+        window.location.href = '/login';
+        return;
+    }
+
     setupNavigation();
     setupEventListeners();
     loadAllData();
-    state.updateInterval = setInterval(loadAllData, 5000); // Refresh every 5 seconds
+    state.refreshInterval = setInterval(loadAllData, 5000); // Refresh every 5 seconds
 });
+
+async function checkAuthStatus() {
+    try {
+        const response = await fetch(`${API_BASE}/auth/status`);
+        if (!response.ok) return false;
+        const data = await response.json();
+        return data.authenticated === true;
+    } catch (error) {
+        console.error('Error checking auth status:', error);
+        return false;
+    }
+}
 
 function setupNavigation() {
     navButtons.forEach(btn => {
@@ -59,6 +77,15 @@ function setupEventListeners() {
     document.getElementById('filterUnacknowledged').addEventListener('click', () => loadAlerts(true));
     document.getElementById('timelineDeviceSelect').addEventListener('change', (e) => {
         if (e.target.value) loadTimeline(parseInt(e.target.value));
+    });
+    document.getElementById('deviceSearch').addEventListener('input', () => displayDevices());
+    document.getElementById('deviceStatusFilter').addEventListener('change', () => displayDevices());
+    document.getElementById('deviceGroupFilter').addEventListener('change', () => displayDevices());
+    document.getElementById('resetFilters').addEventListener('click', () => {
+        document.getElementById('deviceSearch').value = '';
+        document.getElementById('deviceStatusFilter').value = '';
+        document.getElementById('deviceGroupFilter').value = '';
+        displayDevices();
     });
 
     // Monitoring controls
@@ -93,7 +120,7 @@ function switchTab(tabName) {
 
 // ==================== DATA LOADING ====================
 async function loadAllData() {
-    Promise.all([
+    await Promise.all([
         loadDevices(),
         loadGroups(),
         loadNetworkSummary(),
@@ -113,6 +140,20 @@ async function loadDevices() {
     } catch (error) {
         console.error('Error loading devices:', error);
     }
+}
+
+function getFilteredDevices() {
+    const searchTerm = document.getElementById('deviceSearch')?.value.trim().toLowerCase() || '';
+    const statusFilter = document.getElementById('deviceStatusFilter')?.value || '';
+    const groupFilter = document.getElementById('deviceGroupFilter')?.value || '';
+
+    return state.devices.filter(device => {
+        const matchesSearch = searchTerm === '' || device.name.toLowerCase().includes(searchTerm) || device.ip_address.toLowerCase().includes(searchTerm);
+        const matchesStatus = statusFilter === '' || device.status === statusFilter;
+        const deviceGroupName = device.group_name || 'Ungrouped';
+        const matchesGroup = groupFilter === '' || deviceGroupName === groupFilter;
+        return matchesSearch && matchesStatus && matchesGroup;
+    });
 }
 
 async function loadGroups() {
@@ -194,12 +235,14 @@ function updateAlertCount() {
 }
 
 function displayDevices() {
-    if (state.devices.length === 0) {
-        devicesList.innerHTML = '<p class="loading">No devices added yet</p>';
+    const visibleDevices = getFilteredDevices();
+
+    if (visibleDevices.length === 0) {
+        devicesList.innerHTML = '<p class="loading">No devices match the current filters.</p>';
         return;
     }
 
-    devicesList.innerHTML = state.devices.map(device => `
+    devicesList.innerHTML = visibleDevices.map(device => `
         <div class="device-card ${device.status}">
             <div class="device-header">
                 <span class="device-name">${escapeHtml(device.name)}</span>
@@ -207,6 +250,7 @@ function displayDevices() {
             </div>
             <div class="device-info">
                 <strong>IP:</strong> ${device.ip_address}<br>
+                <strong>Group:</strong> ${device.group_name ? escapeHtml(device.group_name) : 'Ungrouped'}<br>
                 <strong>Interval:</strong> ${device.interval}s<br>
                 <strong>Uptime:</strong> ${(device.uptime_percentage || 100).toFixed(1)}%
             </div>
@@ -216,6 +260,7 @@ function displayDevices() {
             <div class="device-actions">
                 <button class="btn btn-secondary" onclick="editDevice(${device.id})">Edit</button>
                 <button class="btn btn-secondary" onclick="viewDetails(${device.id})">Details</button>
+                <button class="btn btn-secondary" onclick="manualPing('${device.ip_address}', ${device.id})">Ping Test</button>
                 <button class="btn btn-danger" onclick="deleteDeviceConfirm(${device.id})">Delete</button>
             </div>
         </div>
@@ -459,6 +504,7 @@ async function viewDetails(deviceId) {
         <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
             <div>
                 <p><strong>IP Address:</strong> ${device.ip_address}</p>
+                <p><strong>Group:</strong> ${device.group_name ? escapeHtml(device.group_name) : 'Ungrouped'}</p>
                 <p><strong>Status:</strong> <span class="status-badge ${device.status}">${device.status.toUpperCase()}</span></p>
                 <p><strong>Last Latency:</strong> ${device.last_latency_ms ? device.last_latency_ms.toFixed(2) + 'ms' : 'N/A'}</p>
                 <p><strong>Last Seen:</strong> ${lastSeen}</p>
@@ -543,12 +589,37 @@ function populateGroupSelect() {
     const select = document.getElementById('deviceGroup');
     select.innerHTML = '<option value="">-- No Group --</option>' +
         state.groups.map(g => `<option value="${g.name}">${escapeHtml(g.name)}</option>`).join('');
+
+    const filter = document.getElementById('deviceGroupFilter');
+    if (filter) {
+        const groupOptions = ['Ungrouped', ...state.groups.map(g => g.name)];
+        filter.innerHTML = '<option value="">All Groups</option>' +
+            groupOptions.map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
+    }
 }
 
 function populateTimelineSelect() {
     const select = document.getElementById('timelineDeviceSelect');
     select.innerHTML = '<option value="">-- Select Device --</option>' +
         state.devices.map(d => `<option value="${d.id}">${escapeHtml(d.name)}</option>`).join('');
+}
+
+// ==================== MANUAL PING ====================
+async function manualPing(ipAddress, deviceId) {
+    try {
+        const response = await fetch(`${API_BASE}/ping/${encodeURIComponent(ipAddress)}`);
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Ping failed');
+        }
+
+        const result = await response.json();
+        showMessage(`Ping ${ipAddress}: ${result.status.toUpperCase()} ${result.latency_ms ? result.latency_ms + 'ms' : ''}`, result.status === 'online' ? 'success' : 'error');
+        await loadAllData();
+        return result;
+    } catch (error) {
+        showMessage(`Error: ${error.message}`, 'error');
+    }
 }
 
 // ==================== ALERTS ====================
@@ -575,10 +646,11 @@ function updateCharts() {
 function updateStatusChart() {
     const statusCanvas = document.getElementById('statusChart');
     
+    const onlineCount = state.devices.filter(d => d.status === 'online').length;
+    const offlineCount = state.devices.length - onlineCount;
     const statusCounts = {
-        online: state.devices.filter(d => d.status === 'online').length,
-        offline: state.devices.filter(d => d.status === 'offline').length,
-        unknown: state.devices.filter(d => d.status === 'unknown').length
+        online: onlineCount,
+        offline: offlineCount
     };
 
     if (state.charts.status) state.charts.status.destroy();
@@ -586,11 +658,11 @@ function updateStatusChart() {
     state.charts.status = new Chart(statusCanvas, {
         type: 'doughnut',
         data: {
-            labels: ['Online', 'Offline', 'Unknown'],
+            labels: ['Online', 'Offline'],
             datasets: [{
-                data: [statusCounts.online, statusCounts.offline, statusCounts.unknown],
-                backgroundColor: ['#2ecc71', '#e74c3c', '#95a5a6'],
-                borderColor: ['#27ae60', '#c0392b', '#7f8c8d'],
+                data: [statusCounts.online, statusCounts.offline],
+                backgroundColor: ['#2ecc71', '#e74c3c'],
+                borderColor: ['#27ae60', '#c0392b'],
                 borderWidth: 2
             }]
         },
@@ -671,19 +743,19 @@ function formatDuration(seconds) {
 // ==================== MONITORING CONTROL ====================
 async function startMonitoring() {
     try {
+        const intervalValue = parseInt(document.getElementById('monitoringInterval').value, 10) || 5;
         const response = await fetch(`${API_BASE}/monitoring/start`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ interval: 5 })
+            body: JSON.stringify({ interval: intervalValue })
         });
         
         if (!response.ok) throw new Error('Failed to start monitoring');
         
         const result = await response.json();
-        showMessage('Automatic ping monitoring started! ✓', 'success');
+        showMessage(`Automatic ping monitoring started at ${intervalValue}s interval! ✓`, 'success');
         updateMonitoringUI(true);
         
-        // Start refresh cycle for real-time updates
         if (!state.refreshInterval) {
             state.refreshInterval = setInterval(loadAllData, 5000);
         }
@@ -703,7 +775,6 @@ async function stopMonitoring() {
         showMessage('Automatic ping monitoring stopped', 'success');
         updateMonitoringUI(false);
         
-        // Stop refresh cycle
         if (state.refreshInterval) {
             clearInterval(state.refreshInterval);
             state.refreshInterval = null;

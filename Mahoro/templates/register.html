@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register - Network Monitor System</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="auth-page">
+        <div class="auth-card">
+            <h1>Register</h1>
+            {% if message %}
+                <div class="message {{ 'success' if success else 'error' }}">{{ message }}</div>
+            {% endif %}
+            {% if success %}
+                <div class="auth-note">
+                    <strong>MFA Secret:</strong> {{ secret }}<br>
+                    <strong>Backup Code:</strong> {{ backup_code }}<br>
+                    Use the secret with your authenticator app and keep the backup code safe.
+                </div>
+                <a href="{{ url_for('login') }}" class="btn btn-primary btn-full">Proceed to Login</a>
+            {% else %}
+                <form method="POST" class="auth-form">
+                    <label for="username">Username</label>
+                    <input id="username" name="username" type="text" required>
+                    <label for="display_name">Display Name</label>
+                    <input id="display_name" name="display_name" type="text">
+                    <label for="phone_number">Phone Number</label>
+                    <input id="phone_number" name="phone_number" type="tel" placeholder="Optional">
+                    <label for="password">Password</label>
+                    <input id="password" name="password" type="password" required>
+                    <label for="confirm">Confirm Password</label>
+                    <input id="confirm" name="confirm" type="password" required>
+                    <button type="submit" class="btn btn-primary btn-full">Register</button>
+                </form>
+                <p class="auth-note">Already registered? <a href="{{ url_for('login') }}">Login now</a></p>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>

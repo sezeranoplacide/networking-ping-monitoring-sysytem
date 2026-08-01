@@ -255,14 +255,6 @@ class PingService:
                     new_status = result['status']
                     
                     if old_status != new_status:
-                        # Create status change record
-                        device_manager.record_status_change(
-                            device.id,
-                            old_status,
-                            new_status
-                        )
-                        
-                        # Create alert for status change
                         severity = 'critical' if new_status == 'offline' else 'info'
                         device_manager.create_alert(
                             device_id=device.id,

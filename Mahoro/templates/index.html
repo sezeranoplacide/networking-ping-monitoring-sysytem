@@ -22,8 +22,13 @@
                     <button class="nav-btn" data-tab="analytics">Analytics</button>
                     <button class="nav-btn" data-tab="alerts">Alerts</button>
                 </div>
-                <div class="navbar-status" id="networkStatus">
+                <div class="navbar-status">
                     <span class="status-dot online"></span> Network OK
+                </div>
+                <div class="user-panel">
+                    <span class="user-name">{{ username or 'Guest' }}</span>
+                    <span class="user-role">{{ role or 'operator' }}</span>
+                    <a class="btn btn-secondary" href="{{ url_for('logout') }}">Logout</a>
                 </div>
             </div>
         </nav>
@@ -87,14 +92,30 @@
                             <span id="monitoringLabel">Status:</span>
                             <span id="monitoringStatusIndicator" class="status-indicator stopped">STOPPED</span>
                         </div>
+                        <div class="monitoring-fields">
+                            <label for="monitoringInterval">Ping Interval (seconds)</label>
+                            <input id="monitoringInterval" type="number" min="1" max="300" value="5">
+                        </div>
                         <div class="monitoring-buttons">
                             <button id="startMonitoringBtn" class="btn btn-success">▶ Start Monitoring</button>
                             <button id="stopMonitoringBtn" class="btn btn-danger" style="display: none;">⏸ Stop Monitoring</button>
                         </div>
                         <div class="monitoring-info">
-                            <small>Automatic monitoring will continuously ping all devices every 5 seconds and record latency/connectivity data</small>
+                            <small>Automatic monitoring will continuously ping all devices and record latency/connectivity data.</small>
                         </div>
                     </div>
+                </div>
+
+                <!-- Connection Guidance -->
+                <div class="card">
+                    <h3>Network Connection Guidance</h3>
+                    <ul class="connection-guidance">
+                        <li>Verify each device IP is correct and reachable from this server.</li>
+                        <li>Ensure the device is on the same network or that ICMP/ping traffic is allowed through firewalls.</li>
+                        <li>Use a wired connection for critical infrastructure, and assign static IPs to key devices.</li>
+                        <li>Group devices by location, function, or VLAN to quickly identify offline segments.</li>
+                        <li>Confirm device credentials and management interfaces are accessible for troubleshooting.</li>
+                    </ul>
                 </div>
 
                 <!-- Charts Section -->
@@ -151,6 +172,22 @@
                         <button type="submit" class="btn btn-primary btn-full">Add Device to Network</button>
                     </form>
                     <div id="formMessage" class="message"></div>
+                </div>
+                <div class="card device-filter-card">
+                    <h2>Device Filters</h2>
+                    <div class="device-filter-row">
+                        <input id="deviceSearch" type="search" placeholder="Search devices by name or IP">
+                        <select id="deviceStatusFilter">
+                            <option value="">All Statuses</option>
+                            <option value="online">Online</option>
+                            <option value="offline">Offline</option>
+                            <option value="unknown">Unknown</option>
+                        </select>
+                        <select id="deviceGroupFilter">
+                            <option value="">All Groups</option>
+                        </select>
+                        <button id="resetFilters" class="btn btn-secondary">Reset Filters</button>
+                    </div>
                 </div>
 
                 <!-- Device Groups Section -->

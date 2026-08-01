@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Network Monitor System</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="auth-page">
+        <div class="auth-card">
+            <h1>Login</h1>
+            {% if message %}
+                <div class="message error">{{ message }}</div>
+            {% endif %}
+            <form method="POST" class="auth-form">
+                <label for="username">Username</label>
+                <input id="username" name="username" type="text" required>
+                <label for="password">Password</label>
+                <input id="password" name="password" type="password" required>
+                <label for="auth_code">MFA Code</label>
+                <input id="auth_code" name="auth_code" type="text" required>
+                <button type="submit" class="btn btn-primary btn-full">Login</button>
+            </form>
+            <p class="auth-note">New user? <a href="{{ url_for('register') }}">Create an account</a></p>
+            <p class="auth-note">If you lose access to your authenticator app, use the backup code shown at registration.</p>
+        </div>
+    </div>
+</body>
+</html>

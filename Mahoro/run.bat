@@ -1,13 +1,20 @@
 @echo off
+setlocal enabledelayedexpansion
+pushd "%~dp0"
+
 echo Installing dependencies...
-pip install -r requirements.txt
+"%~dp0\.venv\Scripts\python.exe" -m pip install --upgrade pip
+"%~dp0\.venv\Scripts\python.exe" -m pip install -r "%~dp0requirements.txt"
 
 echo.
 echo Starting Ping Monitor...
 echo.
 echo Web interface will be available at: http://localhost:5000
 echo.
-python app.py
+"%~dp0\.venv\Scripts\python.exe" app.py
+
+popd
+endlocal
 
 echo.
 echo ============================================

@@ -1,10 +1,14 @@
 from __future__ import annotations
 import ipaddress
+import secrets
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+
+import pyotp
+from werkzeug.security import check_password_hash, generate_password_hash
 
 
 @dataclass
@@ -12,6 +16,7 @@ class Device:
     id: int
     name: str
     ip_address: str
+    group_name: Optional[str]
     interval: int
     timeout: int
     status: str
@@ -110,6 +115,24 @@ class DeviceManager:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT NOT NULL UNIQUE,
+                    display_name TEXT,
+                    phone_number TEXT,
+                    password_hash TEXT NOT NULL,
+                    role TEXT NOT NULL DEFAULT 'operator',
+                    mfa_enabled INTEGER NOT NULL DEFAULT 1,
+                    mfa_secret TEXT NOT NULL,
+                    backup_code_hash TEXT,
+                    created_at TEXT NOT NULL,
+                    last_login_at TEXT
+                )
+                """
+            )
+            self._migrate_user_schema(conn)
             # Create indices for better query performance
             conn.execute("CREATE INDEX IF NOT EXISTS idx_device_status ON devices(status)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_ping_device_time ON ping_results(device_id, recorded_at)")
@@ -139,10 +162,10 @@ class DeviceManager:
             cursor = conn.execute(
                 """
                 INSERT INTO devices (
-                    name, ip_address, interval, timeout, status, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, 'unknown', ?, ?)
+                    name, ip_address, group_name, interval, timeout, status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, 'unknown', ?, ?)
                 """,
-                (name, ip_address, interval, timeout, now, now),
+                (name, ip_address, None, interval, timeout, now, now),
             )
             conn.commit()
             device_id = cursor.lastrowid
@@ -151,7 +174,7 @@ class DeviceManager:
     def get_device(self, device_id: int) -> Optional[Device]:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT id, name, ip_address, interval, timeout, status, last_latency_ms, last_seen_at, created_at, updated_at FROM devices WHERE id = ?",
+                "SELECT id, name, ip_address, group_name, interval, timeout, status, last_latency_ms, last_seen_at, created_at, updated_at FROM devices WHERE id = ?",
                 (device_id,),
             ).fetchone()
         if row is None:
@@ -161,7 +184,7 @@ class DeviceManager:
     def list_devices(self) -> list[Device]:
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT id, name, ip_address, interval, timeout, status, last_latency_ms, last_seen_at, created_at, updated_at FROM devices ORDER BY id"
+                "SELECT id, name, ip_address, group_name, interval, timeout, status, last_latency_ms, last_seen_at, created_at, updated_at FROM devices ORDER BY id"
             ).fetchall()
         return [self._row_to_device(row) for row in rows]
 
@@ -230,6 +253,119 @@ class DeviceManager:
     def get_device_by_id(self, device_id: int) -> Optional[Device]:
         """Get a device by ID (alias for get_device)."""
         return self.get_device(device_id)
+
+    def get_user_count(self) -> int:
+        with self._connect() as conn:
+            row = conn.execute("SELECT COUNT(*) AS total FROM users").fetchone()
+        return int(row[0] if row else 0)
+
+    def get_user_by_username(self, username: str) -> Optional[dict]:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+        return dict(row) if row else None
+
+    def get_user_by_id(self, user_id: int) -> Optional[dict]:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        return dict(row) if row else None
+    def get_device_by_ip(self, ip_address: str) -> Optional[Device]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT id, name, ip_address, group_name, interval, timeout, status, last_latency_ms, last_seen_at, created_at, updated_at FROM devices WHERE ip_address = ?",
+                (ip_address,),
+            ).fetchone()
+        return self._row_to_device(row) if row else None
+    def verify_mfa_code(self, user: dict, code: str) -> bool:
+        if not user or not code:
+            return False
+
+        try:
+            totp = pyotp.TOTP(user['mfa_secret'])
+            return bool(totp.verify(code, valid_window=1))
+        except Exception:
+            return False
+
+    def verify_backup_code(self, user: dict, code: str) -> bool:
+        if not user or not code or not user.get('backup_code_hash'):
+            return False
+        try:
+            return check_password_hash(user['backup_code_hash'], code)
+        except Exception:
+            return False
+
+    def clear_backup_code(self, user_id: int) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE users SET backup_code_hash = NULL WHERE id = ?",
+                (user_id,),
+            )
+            conn.commit()
+
+    def create_user(
+        self,
+        *,
+        username: str,
+        password: str,
+        display_name: Optional[str] = None,
+        phone_number: Optional[str] = None,
+        role: str = 'operator',
+        mfa_enabled: bool = True,
+    ) -> dict:
+        self._validate_user_payload(username=username, password=password, role=role)
+
+        if self.get_user_count() == 0:
+            role = 'admin'
+
+        now = self._timestamp()
+        secret = pyotp.random_base32()
+        backup_code = secrets.token_urlsafe(6)
+        password_hash = generate_password_hash(password)
+        backup_hash = generate_password_hash(backup_code)
+
+        with self._connect() as conn:
+            existing = conn.execute(
+                "SELECT 1 FROM users WHERE username = ?",
+                (username,),
+            ).fetchone()
+            if existing is not None:
+                raise ValueError(f"User '{username}' already exists")
+
+            cursor = conn.execute(
+                """
+                INSERT INTO users (
+                    username, display_name, phone_number, password_hash, role, mfa_enabled, mfa_secret, backup_code_hash, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (username, display_name, phone_number, password_hash, role, int(mfa_enabled), secret, backup_hash, now),
+            )
+            conn.commit()
+            user_id = cursor.lastrowid
+
+        return {
+            'id': user_id,
+            'username': username,
+            'display_name': display_name,
+            'phone_number': phone_number,
+            'role': role,
+            'mfa_enabled': mfa_enabled,
+            'mfa_secret': secret,
+            'backup_code': backup_code,
+            'created_at': now,
+        }
+
+    def list_users(self) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute("SELECT id, username, display_name, phone_number, role, mfa_enabled, created_at, last_login_at FROM users ORDER BY username").fetchall()
+        return [dict(row) for row in rows]
+
+    def update_user_last_login(self, user_id: int) -> None:
+        now = self._timestamp()
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE users SET last_login_at = ? WHERE id = ?",
+                (now, user_id),
+            )
+            conn.commit()
 
     def update_device(
         self,
@@ -454,9 +590,9 @@ class DeviceManager:
             device_list = [dict(d) for d in devices]
 
         online = sum(1 for d in device_list if d['status'] == 'online')
-        offline = sum(1 for d in device_list if d['status'] == 'offline')
         unknown = sum(1 for d in device_list if d['status'] == 'unknown')
         total = len(device_list)
+        offline = total - online
 
         avg_latency = sum(d.get('last_latency_ms') or 0 for d in device_list) / total if total > 0 else 0
 
@@ -495,6 +631,7 @@ class DeviceManager:
             id=row["id"],
             name=row["name"],
             ip_address=row["ip_address"],
+            group_name=row["group_name"],
             interval=row["interval"],
             timeout=row["timeout"],
             status=row["status"],
@@ -503,6 +640,19 @@ class DeviceManager:
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
+
+    def _migrate_user_schema(self, conn: sqlite3.Connection) -> None:
+        cursor = conn.execute("PRAGMA table_info(users)")
+        columns = {row['name'] for row in cursor.fetchall()}
+        if 'phone_number' not in columns:
+            conn.execute("ALTER TABLE users ADD COLUMN phone_number TEXT")
+        if 'mfa_enabled' not in columns:
+            conn.execute("ALTER TABLE users ADD COLUMN mfa_enabled INTEGER NOT NULL DEFAULT 1")
+        if 'mfa_secret' not in columns:
+            conn.execute("ALTER TABLE users ADD COLUMN mfa_secret TEXT NOT NULL DEFAULT ''")
+        if 'backup_code_hash' not in columns:
+            conn.execute("ALTER TABLE users ADD COLUMN backup_code_hash TEXT")
+        conn.commit()
 
     @staticmethod
     def _timestamp() -> str:
@@ -519,7 +669,11 @@ class DeviceManager:
         if not isinstance(timeout, int) or timeout <= 0:
             raise ValueError("Timeout must be a positive integer")
 
-        try:
-            ipaddress.ip_address(ip_address)
-        except ValueError as exc:
-            raise ValueError("IP address must be a valid IPv4 or IPv6 address") from exc
+    @staticmethod
+    def _validate_user_payload(*, username: str, password: str, role: str) -> None:
+        if not isinstance(username, str) or not username.strip():
+            raise ValueError("Username must be a non-empty string")
+        if not isinstance(password, str) or len(password) < 8:
+            raise ValueError("Password must be at least 8 characters")
+        if role not in ('admin', 'operator'):
+            raise ValueError("Role must be 'admin' or 'operator'")
