@@ -8,7 +8,8 @@ let state = {
     alerts: [],
     charts: {},
     currentTab: 'dashboard',
-    refreshInterval: null
+    refreshInterval: null,
+    currentUser: null
 };
 
 // DOM Elements
@@ -40,6 +41,7 @@ async function checkAuthStatus() {
         const response = await fetch(`${API_BASE}/auth/status`);
         if (!response.ok) return false;
         const data = await response.json();
+        state.currentUser = data;
         return data.authenticated === true;
     } catch (error) {
         console.error('Error checking auth status:', error);
@@ -57,42 +59,91 @@ function setupNavigation() {
 }
 
 function setupEventListeners() {
-    deviceForm.addEventListener('submit', handleAddDevice);
+    if (deviceForm) {
+        deviceForm.addEventListener('submit', handleAddDevice);
+    }
+
     closeButtons.forEach(btn => {
         btn.addEventListener('click', () => {
-            modal.style.display = 'none';
-            groupModal.style.display = 'none';
+            if (modal) modal.style.display = 'none';
+            if (groupModal) groupModal.style.display = 'none';
         });
     });
+
     window.addEventListener('click', (e) => {
-        if (e.target === modal) modal.style.display = 'none';
-        if (e.target === groupModal) groupModal.style.display = 'none';
+        if (modal && e.target === modal) modal.style.display = 'none';
+        if (groupModal && e.target === groupModal) groupModal.style.display = 'none';
     });
 
-    document.getElementById('createGroupBtn').addEventListener('click', () => {
-        groupModal.style.display = 'block';
-    });
-    document.getElementById('groupForm').addEventListener('submit', handleCreateGroup);
-    document.getElementById('filterAllAlerts').addEventListener('click', () => loadAlerts());
-    document.getElementById('filterUnacknowledged').addEventListener('click', () => loadAlerts(true));
-    document.getElementById('timelineDeviceSelect').addEventListener('change', (e) => {
-        if (e.target.value) loadTimeline(parseInt(e.target.value));
-    });
-    document.getElementById('deviceSearch').addEventListener('input', () => displayDevices());
-    document.getElementById('deviceStatusFilter').addEventListener('change', () => displayDevices());
-    document.getElementById('deviceGroupFilter').addEventListener('change', () => displayDevices());
-    document.getElementById('resetFilters').addEventListener('click', () => {
-        document.getElementById('deviceSearch').value = '';
-        document.getElementById('deviceStatusFilter').value = '';
-        document.getElementById('deviceGroupFilter').value = '';
-        displayDevices();
-    });
+    const createGroupBtn = document.getElementById('createGroupBtn');
+    if (createGroupBtn) {
+        createGroupBtn.addEventListener('click', () => {
+            if (groupModal) groupModal.style.display = 'block';
+        });
+    }
 
-    // Monitoring controls
-    document.getElementById('startMonitoringBtn').addEventListener('click', startMonitoring);
-    document.getElementById('stopMonitoringBtn').addEventListener('click', stopMonitoring);
-    
-    // Check monitoring status on load
+    const groupForm = document.getElementById('groupForm');
+    if (groupForm) {
+        groupForm.addEventListener('submit', handleCreateGroup);
+    }
+
+    const filterAllAlertsBtn = document.getElementById('filterAllAlerts');
+    if (filterAllAlertsBtn) {
+        filterAllAlertsBtn.addEventListener('click', () => loadAlerts());
+    }
+
+    const filterUnacknowledgedBtn = document.getElementById('filterUnacknowledged');
+    if (filterUnacknowledgedBtn) {
+        filterUnacknowledgedBtn.addEventListener('click', () => loadAlerts(true));
+    }
+
+    const timelineSelect = document.getElementById('timelineDeviceSelect');
+    if (timelineSelect) {
+        timelineSelect.addEventListener('change', (e) => {
+            if (e.target.value) loadTimeline(parseInt(e.target.value));
+        });
+    }
+
+    const deviceSearch = document.getElementById('deviceSearch');
+    if (deviceSearch) {
+        deviceSearch.addEventListener('input', () => displayDevices());
+    }
+
+    const deviceStatusFilter = document.getElementById('deviceStatusFilter');
+    if (deviceStatusFilter) {
+        deviceStatusFilter.addEventListener('change', () => displayDevices());
+    }
+
+    const deviceGroupFilter = document.getElementById('deviceGroupFilter');
+    if (deviceGroupFilter) {
+        deviceGroupFilter.addEventListener('change', () => displayDevices());
+    }
+
+    const resetFiltersBtn = document.getElementById('resetFilters');
+    if (resetFiltersBtn) {
+        resetFiltersBtn.addEventListener('click', () => {
+            if (deviceSearch) deviceSearch.value = '';
+            if (deviceStatusFilter) deviceStatusFilter.value = '';
+            if (deviceGroupFilter) deviceGroupFilter.value = '';
+            displayDevices();
+        });
+    }
+
+    const startMonitoringBtn = document.getElementById('startMonitoringBtn');
+    if (startMonitoringBtn) {
+        startMonitoringBtn.addEventListener('click', startMonitoring);
+    }
+
+    const stopMonitoringBtn = document.getElementById('stopMonitoringBtn');
+    if (stopMonitoringBtn) {
+        stopMonitoringBtn.addEventListener('click', stopMonitoring);
+    }
+
+    const saveGatewayBtn = document.getElementById('saveGatewayBtn');
+    if (saveGatewayBtn) {
+        saveGatewayBtn.addEventListener('click', saveNetworkGateway);
+    }
+
     checkMonitoringStatus();
 }
 
@@ -184,9 +235,15 @@ async function loadAlerts(unacknowledgedOnly = false) {
         const url = `${API_BASE}/alerts${unacknowledgedOnly ? '?unacknowledged=true' : ''}`;
         const response = await fetch(url);
         if (!response.ok) throw new Error('Failed to fetch alerts');
-        state.alerts = await response.json();
+        const nextAlerts = await response.json();
+        const previousIds = (state.alerts || []).map(alert => alert.id);
+        state.alerts = nextAlerts;
         displayAlerts();
         updateAlertCount();
+        const newAlerts = nextAlerts.filter(alert => !previousIds.includes(alert.id));
+        if (newAlerts.length > 0 && state.currentUser?.authenticated) {
+            showMessage(`New alert received: ${newAlerts[0].message}`, newAlerts[0].severity === 'critical' ? 'error' : 'info');
+        }
     } catch (error) {
         console.error('Error loading alerts:', error);
     }
@@ -714,11 +771,26 @@ function updateLatencyChart() {
 
 // ==================== UTILITY FUNCTIONS ====================
 function showMessage(text, type) {
-    formMessage.textContent = text;
-    formMessage.className = `message ${type}`;
-    setTimeout(() => {
-        formMessage.className = 'message';
-    }, 3000);
+    const banner = document.getElementById('notificationBanner');
+    if (formMessage) {
+        formMessage.textContent = text;
+        formMessage.className = `message ${type}`;
+    }
+    if (banner) {
+        banner.textContent = text;
+        banner.className = `notification-banner show ${type}`;
+        clearTimeout(showMessage.timeoutId);
+        showMessage.timeoutId = setTimeout(() => {
+            banner.className = 'notification-banner';
+            if (formMessage) {
+                formMessage.className = 'message';
+            }
+        }, 4000);
+    }
+
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+        new Notification('Network Monitor', { body: text });
+    }
 }
 
 function escapeHtml(text) {
@@ -793,6 +865,28 @@ async function checkMonitoringStatus() {
         updateMonitoringUI(status.is_running);
     } catch (error) {
         console.error('Error checking monitoring status:', error);
+    }
+}
+
+async function saveNetworkGateway() {
+    try {
+        const input = document.getElementById('networkGatewayInput');
+        if (!input) return;
+        const gatewayIp = input.value.trim();
+        const response = await fetch(`${API_BASE}/settings/network-gateway`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ gateway_ip: gatewayIp })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to save network gateway');
+        const status = document.getElementById('gatewayStatus');
+        if (status) {
+            status.textContent = `Gateway saved: ${data.gateway_ip}`;
+        }
+        showMessage(`Gateway updated to ${data.gateway_ip}`, 'success');
+    } catch (error) {
+        showMessage(`Error: ${error.message}`, 'error');
     }
 }
 

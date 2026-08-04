@@ -1,5 +1,6 @@
 from __future__ import annotations
 import ipaddress
+import os
 import secrets
 import sqlite3
 from dataclasses import dataclass
@@ -35,6 +36,7 @@ class DeviceManager:
         self.db_path = str(db_path)
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self.initialize_schema()
+        self.ensure_default_admin()
 
     def initialize_schema(self) -> None:
         with self._connect() as conn:
@@ -139,6 +141,27 @@ class DeviceManager:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_status_changes_device ON status_changes(device_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_alerts_device ON alerts(device_id)")
             conn.commit()
+
+    def ensure_default_admin(self) -> Optional[dict]:
+        username = os.environ.get('DEFAULT_ADMIN_USERNAME', 'admin')
+        password = os.environ.get('DEFAULT_ADMIN_PASSWORD', 'Admin12345!')
+        existing = self.get_user_by_username(username)
+        if existing is not None:
+            with self._connect() as conn:
+                conn.execute(
+                    "UPDATE users SET role = 'admin', password_hash = ?, mfa_enabled = 0 WHERE username = ?",
+                    (generate_password_hash(password), username),
+                )
+                conn.commit()
+            return self.get_user_by_username(username)
+
+        return self.create_user(
+            username=username,
+            password=password,
+            display_name='Administrator',
+            role='admin',
+            mfa_enabled=False,
+        )
 
     def create_device(
         self,

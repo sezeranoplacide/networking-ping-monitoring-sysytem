@@ -9,6 +9,7 @@
 </head>
 <body>
     <div class="app">
+        <div id="notificationBanner" class="notification-banner" role="status" aria-live="polite"></div>
         <!-- Navigation -->
         <nav class="navbar">
             <div class="navbar-container">
@@ -28,6 +29,11 @@
                 <div class="user-panel">
                     <span class="user-name">{{ username or 'Guest' }}</span>
                     <span class="user-role">{{ role or 'operator' }}</span>
+                    {% if role == 'admin' %}
+                    <span class="status-badge online">Admin</span>
+                    {% else %}
+                    <span class="status-badge offline">Operator</span>
+                    {% endif %}
                     <a class="btn btn-secondary" href="{{ url_for('logout') }}">Logout</a>
                 </div>
             </div>
@@ -39,6 +45,7 @@
             <section id="dashboard-tab" class="tab-content active">
                 <!-- Network Summary -->
                 <div class="section-title">Network Overview</div>
+                <p class="auth-note" style="margin-bottom: 16px;">Monitor your entire network from one place: status, latency, groups, and alerts are shown here for quick review.</p>
                 <div class="summary-grid">
                     <div class="summary-card">
                         <div class="summary-icon total">📊</div>
@@ -85,6 +92,7 @@
                 </div>
 
                 <!-- Monitoring Controls -->
+                {% if role == 'admin' %}
                 <div class="card monitoring-section">
                     <h3>🔵 Automatic Ping Monitoring</h3>
                     <div class="monitoring-controls">
@@ -105,6 +113,7 @@
                         </div>
                     </div>
                 </div>
+                {% endif %}
 
                 <!-- Connection Guidance -->
                 <div class="card">
@@ -117,6 +126,17 @@
                         <li>Confirm device credentials and management interfaces are accessible for troubleshooting.</li>
                     </ul>
                 </div>
+
+                {% if role == 'admin' %}
+                <div class="card">
+                    <h3>Network Gateway Setup</h3>
+                    <div class="monitoring-fields">
+                        <input id="networkGatewayInput" type="text" placeholder="e.g. 192.168.1.254">
+                        <button id="saveGatewayBtn" class="btn btn-primary">Save Gateway</button>
+                    </div>
+                    <p id="gatewayStatus" class="auth-note">Set the main gateway IP to guide network checks.</p>
+                </div>
+                {% endif %}
 
                 <!-- Charts Section -->
                 <div class="charts-row">
@@ -143,9 +163,11 @@
 
             <!-- Devices Tab -->
             <section id="devices-tab" class="tab-content">
+                {% if role == 'admin' %}
                 <!-- Add Device Section -->
                 <div class="card add-device-section">
                     <h2>Add New Device to Monitor</h2>
+                    <p class="auth-note">Add a device using its IP address and it will appear automatically in the monitored devices list below.</p>
                     <form id="deviceForm" class="form-grid">
                         <div class="form-group">
                             <label for="deviceName">Device Name *</label>
@@ -173,6 +195,7 @@
                     </form>
                     <div id="formMessage" class="message"></div>
                 </div>
+                {% endif %}
                 <div class="card device-filter-card">
                     <h2>Device Filters</h2>
                     <div class="device-filter-row">
@@ -190,12 +213,14 @@
                     </div>
                 </div>
 
+                {% if role == 'admin' %}
                 <!-- Device Groups Section -->
                 <div class="card">
                     <h2>Device Groups</h2>
                     <button class="btn btn-secondary" id="createGroupBtn" style="margin-bottom: 20px;">+ Create New Group</button>
                     <div class="groups-grid" id="groupsList"></div>
                 </div>
+                {% endif %}
 
                 <!-- Devices List -->
                 <div class="card devices-section">
@@ -210,6 +235,7 @@
             <section id="analytics-tab" class="tab-content">
                 <div class="analytics-container">
                     <h2>Network Analytics & Reports</h2>
+                    <p class="auth-note">Select a device from the timeline list to view its status history and performance metrics.</p>
                     
                     <!-- Device Statistics -->
                     <div class="card">
@@ -232,6 +258,7 @@
             <section id="alerts-tab" class="tab-content">
                 <div class="alerts-container">
                     <h2>System Alerts & Notifications</h2>
+                    <p class="auth-note">All alert activity is shown here so admins and operators can review the latest changes quickly.</p>
                     
                     <div class="alerts-filter">
                         <button class="btn btn-secondary" id="filterAllAlerts">All Alerts</button>

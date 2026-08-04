@@ -18,8 +18,8 @@
                 <input id="username" name="username" type="text" required>
                 <label for="password">Password</label>
                 <input id="password" name="password" type="password" required>
-                <label for="auth_code">MFA Code</label>
-                <input id="auth_code" name="auth_code" type="text" required>
+                <label for="auth_code">MFA Code (optional)</label>
+                <input id="auth_code" name="auth_code" type="text" placeholder="Leave blank if you do not use MFA">
                 <button type="submit" class="btn btn-primary btn-full">Login</button>
             </form>
             <p class="auth-note">New user? <a href="{{ url_for('register') }}">Create an account</a></p>

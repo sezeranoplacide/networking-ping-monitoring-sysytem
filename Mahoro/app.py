@@ -45,6 +45,8 @@ def require_login():
     }
     if request.endpoint in public_endpoints:
         return
+    if request.path == '/':
+        return
     if request.path.startswith('/static/'):
         return
     if not is_logged_in():
@@ -62,16 +64,45 @@ def admin_required(fn):
     return wrapper
 
 
+def is_admin_user() -> bool:
+    return current_user().get('role') == 'admin'
+
+
 @app.route('/')
 def index():
-    """Serve main page."""
+    """Serve the admin dashboard."""
     user = current_user()
-    return render_template('index.html', username=user.get('display_name') or user.get('username'), role=user.get('role'))
+    if not user:
+        return redirect(url_for('login'))
+    if user.get('role') != 'admin':
+        return redirect(url_for('home'))
+
+    return render_template(
+        'index.html',
+        username=user.get('display_name') or user.get('username'),
+        role=user.get('role'),
+        access_denied=False,
+    )
+
+
+@app.route('/home')
+def home():
+    """Serve a role-based landing page for authenticated users."""
+    user = current_user()
+    if not user:
+        return redirect(url_for('login'))
+
+    return render_template(
+        'index.html',
+        username=user.get('display_name') or user.get('username'),
+        role=user.get('role'),
+        access_denied=False,
+    )
 
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    message = ''
+    message = request.args.get('message', '')
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '').strip()
@@ -80,7 +111,7 @@ def login():
 
         if user is None or not check_password_hash(user['password_hash'], password):
             message = 'Invalid username or password.'
-        elif user.get('mfa_enabled'):
+        elif user.get('mfa_enabled') and auth_code:
             if dm.verify_mfa_code(user, auth_code):
                 pass
             elif dm.verify_backup_code(user, auth_code):
@@ -94,7 +125,9 @@ def login():
             session['username'] = user['username']
             session['role'] = user['role']
             dm.update_user_last_login(user['id'])
-            return redirect(url_for('index'))
+            if user['role'] == 'admin':
+                return redirect(url_for('index'))
+            return redirect(url_for('home'))
 
     return render_template('login.html', message=message, user_count=dm.get_user_count())
 
@@ -157,7 +190,8 @@ def auth_status():
         'authenticated': True,
         'username': user.get('username'),
         'display_name': user.get('display_name'),
-        'role': user.get('role')
+        'role': user.get('role'),
+        'is_admin': user.get('role') == 'admin'
     })
 
 
@@ -193,6 +227,7 @@ def get_devices():
 
 
 @app.route('/api/devices', methods=['POST'])
+@admin_required
 def create_device():
     """Create a new device."""
     try:
@@ -244,6 +279,7 @@ def get_device(device_id):
 
 
 @app.route('/api/devices/<int:device_id>', methods=['PUT'])
+@admin_required
 def update_device(device_id):
     """Update a device."""
     try:
@@ -268,6 +304,7 @@ def update_device(device_id):
 
 
 @app.route('/api/devices/<int:device_id>', methods=['DELETE'])
+@admin_required
 def delete_device(device_id):
     """Delete a device."""
     try:
@@ -279,6 +316,7 @@ def delete_device(device_id):
 
 
 @app.route('/api/devices/<int:device_id>/assign-group', methods=['POST'])
+@admin_required
 def assign_group(device_id):
     """Assign device to a group."""
     try:
@@ -414,6 +452,7 @@ def get_groups():
 
 
 @app.route('/api/groups', methods=['POST'])
+@admin_required
 def create_group():
     """Create a new device group."""
     try:
@@ -468,6 +507,7 @@ def manual_ping(ip_address):
 
 
 @app.route('/api/monitoring/start', methods=['POST'])
+@admin_required
 def start_monitoring():
     """Start automatic device monitoring."""
     try:
@@ -483,6 +523,7 @@ def start_monitoring():
 
 
 @app.route('/api/monitoring/stop', methods=['POST'])
+@admin_required
 def stop_monitoring():
     """Stop automatic device monitoring."""
     try:
@@ -500,6 +541,22 @@ def monitoring_status():
         'is_running': ping_service.is_running,
         'last_results': len(ping_service.last_results)
     }), 200
+
+
+@app.route('/api/settings/network-gateway', methods=['GET', 'POST'])
+@admin_required
+def network_gateway_settings():
+    """Store and return the network gateway IP for the current environment."""
+    if request.method == 'POST':
+        payload = request.get_json(silent=True) or {}
+        gateway_ip = (payload.get('gateway_ip') or '').strip()
+        if not gateway_ip:
+            return jsonify({'error': 'Gateway IP is required'}), 400
+        session['network_gateway'] = gateway_ip
+        return jsonify({'gateway_ip': gateway_ip, 'saved': True}), 200
+
+    gateway_ip = session.get('network_gateway') or ''
+    return jsonify({'gateway_ip': gateway_ip}), 200
 
 
 if __name__ == '__main__':
