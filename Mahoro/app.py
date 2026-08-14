@@ -439,6 +439,21 @@ def get_users():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/users/<int:user_id>/role', methods=['PUT'])
+@admin_required
+def update_user_role(user_id):
+    try:
+        data = request.json or {}
+        role = data.get('role')
+        if not role:
+            return jsonify({'error': 'Role is required'}), 400
+        user = dm.update_user_role(user_id, role)
+        return jsonify(user), 200
+    except Exception as e:
+        logger.error(f"Error updating user role: {e}")
+        return jsonify({'error': str(e)}), 400
+
+
 # ==================== GROUPS ====================
 @app.route('/api/groups', methods=['GET'])
 def get_groups():
@@ -449,6 +464,27 @@ def get_groups():
     except Exception as e:
         logger.error(f"Error fetching groups: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/notifications', methods=['GET'])
+def get_notifications():
+    try:
+        # Return recent notifications (admins see all, others see same feed for now)
+        notes = dm.get_notifications()
+        return jsonify(notes), 200
+    except Exception as e:
+        logger.error(f"Error fetching notifications: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/notifications/<int:notification_id>/ack', methods=['POST'])
+def ack_notification(notification_id):
+    try:
+        dm.acknowledge_notification(notification_id)
+        return jsonify({'success': True}), 200
+    except Exception as e:
+        logger.error(f"Error acknowledging notification: {e}")
+        return jsonify({'error': str(e)}), 400
 
 
 @app.route('/api/groups', methods=['POST'])
@@ -541,6 +577,25 @@ def monitoring_status():
         'is_running': ping_service.is_running,
         'last_results': len(ping_service.last_results)
     }), 200
+
+
+def start_notification_escalator(interval_seconds: int = 60, older_than_minutes: int = 5):
+    """Start a background thread to escalate old unacknowledged critical notifications."""
+    import threading
+
+    def worker():
+        logger.info('Notification escalator started')
+        while True:
+            try:
+                count = dm.escalate_unacknowledged_notifications(older_than_minutes)
+                if count:
+                    logger.info(f'Escalated {count} notifications')
+            except Exception as e:
+                logger.error(f'Error in escalator: {e}')
+            time.sleep(interval_seconds)
+
+    t = threading.Thread(target=worker, daemon=True)
+    t.start()
 
 
 @app.route('/api/settings/network-gateway', methods=['GET', 'POST'])

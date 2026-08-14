@@ -11,6 +11,8 @@ let state = {
     refreshInterval: null,
     currentUser: null
 };
+state.notifications = [];
+state._seenNotificationIds = new Set();
 
 // DOM Elements
 const navButtons = document.querySelectorAll('.nav-btn');
@@ -34,6 +36,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupEventListeners();
     loadAllData();
     state.refreshInterval = setInterval(loadAllData, 5000); // Refresh every 5 seconds
+    // Poll notifications separately
+    loadNotifications();
+    setInterval(loadNotifications, 10000);
 });
 
 async function checkAuthStatus() {
@@ -145,6 +150,19 @@ function setupEventListeners() {
     }
 
     checkMonitoringStatus();
+
+    // Load users panel if present (admin)
+    const usersPanel = document.getElementById('usersPanel');
+    if (usersPanel) loadUsersPanel();
+
+    const openNotificationsBtn = document.getElementById('openNotificationsBtn');
+    if (openNotificationsBtn) {
+        openNotificationsBtn.addEventListener('click', () => {
+            const modal = document.getElementById('notificationsModal');
+            if (modal) modal.style.display = 'block';
+            loadNotificationsPanel();
+        });
+    }
 }
 
 function switchTab(tabName) {
@@ -246,6 +264,65 @@ async function loadAlerts(unacknowledgedOnly = false) {
         }
     } catch (error) {
         console.error('Error loading alerts:', error);
+    }
+}
+
+// ==================== NOTIFICATIONS ====================
+async function loadNotifications() {
+    try {
+        const response = await fetch(`${API_BASE}/notifications`);
+        if (!response.ok) throw new Error('Failed to fetch notifications');
+        const notes = await response.json();
+        state.notifications = notes;
+
+        // Find new notifications
+        const newNotes = notes.filter(n => !state._seenNotificationIds.has(n.id));
+        newNotes.reverse().forEach(n => {
+            // display each new notification
+            showMessage(n.message, n.severity === 'critical' ? 'error' : 'info');
+            state._seenNotificationIds.add(n.id);
+        });
+    } catch (error) {
+        console.error('Error loading notifications:', error);
+    }
+}
+
+async function loadNotificationsPanel() {
+    try {
+        const resp = await fetch(`${API_BASE}/notifications`);
+        if (!resp.ok) throw new Error('Failed to fetch notifications');
+        const notes = await resp.json();
+        const container = document.getElementById('notificationsList');
+        if (!container) return;
+        if (!notes || notes.length === 0) {
+            container.innerHTML = '<p class="loading">No notifications</p>';
+            return;
+        }
+        container.innerHTML = notes.map(n => `
+            <div class="notification-row ${n.severity}">
+                <div style="flex:1">
+                    <div class="notif-title">${escapeHtml(n.title || '')}</div>
+                    <div class="notif-message">${escapeHtml(n.message)}</div>
+                    <div class="notif-time">${n.created_at}</div>
+                </div>
+                <div style="margin-left:12px">
+                    ${n.is_acknowledged ? '<span style="color:#999">Acknowledged</span>' : `<button class="btn btn-secondary" onclick="ackNotification(${n.id})">Acknowledge</button>`}
+                </div>
+            </div>
+        `).join('');
+    } catch (err) {
+        console.error('Error loading notifications panel:', err);
+    }
+}
+
+async function ackNotification(notificationId) {
+    try {
+        const resp = await fetch(`${API_BASE}/notifications/${notificationId}/ack`, { method: 'POST' });
+        if (!resp.ok) throw new Error('Failed to acknowledge');
+        showMessage('Notification acknowledged', 'success');
+        loadNotificationsPanel();
+    } catch (err) {
+        showMessage(`Error: ${err.message}`, 'error');
     }
 }
 
@@ -659,6 +736,65 @@ function populateTimelineSelect() {
     const select = document.getElementById('timelineDeviceSelect');
     select.innerHTML = '<option value="">-- Select Device --</option>' +
         state.devices.map(d => `<option value="${d.id}">${escapeHtml(d.name)}</option>`).join('');
+}
+
+// ==================== USERS (ADMIN) ====================
+async function loadUsersPanel() {
+    try {
+        const resp = await fetch(`${API_BASE}/users`);
+        if (!resp.ok) throw new Error('Failed to fetch users');
+        const users = await resp.json();
+        const panel = document.getElementById('usersPanel');
+        if (!panel) return;
+        panel.innerHTML = users.map(u => `
+            <div class="user-row">
+                <div class="user-info">
+                    <strong>${escapeHtml(u.username)}</strong> <span style="color:#666;margin-left:8px;">${escapeHtml(u.display_name||'')}</span>
+                    <div style="font-size:0.9em;color:#777;">Last login: ${u.last_login_at || 'Never'}</div>
+                </div>
+                <div class="user-actions">
+                    <select data-user-id="${u.id}" class="role-select">
+                        <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
+                        <option value="network_engineer" ${u.role==='network_engineer'?'selected':''}>Network Engineer</option>
+                        <option value="operator" ${u.role==='operator'?'selected':''}>Operator</option>
+                        <option value="viewer" ${u.role==='viewer'?'selected':''}>Viewer</option>
+                    </select>
+                    <button class="btn btn-secondary" onclick="changeUserRole(${u.id})">Save</button>
+                </div>
+            </div>
+        `).join('');
+
+        // attach change handlers
+        document.querySelectorAll('.role-select').forEach(sel => {
+            sel.addEventListener('change', (e)=>{
+                const id = parseInt(e.target.dataset.userId);
+                // highlight save button or auto-save
+            });
+        });
+    } catch (err) {
+        console.error('Error loading users:', err);
+    }
+}
+
+async function changeUserRole(userId) {
+    try {
+        const select = document.querySelector(`select[data-user-id="${userId}"]`);
+        if (!select) return;
+        const role = select.value;
+        const resp = await fetch(`${API_BASE}/users/${userId}/role`, {
+            method: 'PUT',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({role})
+        });
+        if (!resp.ok) {
+            const err = await resp.json();
+            throw new Error(err.error||'Failed to update role');
+        }
+        showMessage('Role updated', 'success');
+        loadUsersPanel();
+    } catch (err) {
+        showMessage(`Error: ${err.message}`, 'error');
+    }
 }
 
 // ==================== MANUAL PING ====================

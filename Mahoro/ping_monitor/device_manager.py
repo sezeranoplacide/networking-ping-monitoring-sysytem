@@ -108,6 +108,21 @@ class DeviceManager:
             )
             conn.execute(
                 """
+                CREATE TABLE IF NOT EXISTS notifications (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT,
+                    message TEXT NOT NULL,
+                    related_device_id INTEGER,
+                    severity TEXT NOT NULL DEFAULT 'info',
+                    is_acknowledged INTEGER DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    acknowledged_at TEXT,
+                    FOREIGN KEY(related_device_id) REFERENCES devices(id) ON DELETE SET NULL
+                )
+                """
+            )
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS device_groups (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL UNIQUE,
@@ -140,6 +155,7 @@ class DeviceManager:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_ping_device_time ON ping_results(device_id, recorded_at)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_status_changes_device ON status_changes(device_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_alerts_device ON alerts(device_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at)")
             conn.commit()
 
     def ensure_default_admin(self) -> Optional[dict]:
@@ -225,6 +241,7 @@ class DeviceManager:
             raise ValueError("Status must be a non-empty string")
 
         now = self._timestamp()
+        device = self.get_device(device_id)
         with self._connect() as conn:
             current = conn.execute(
                 "SELECT status FROM devices WHERE id = ?",
@@ -239,6 +256,27 @@ class DeviceManager:
                     "INSERT INTO status_changes (device_id, from_status, to_status, recorded_at) VALUES (?, ?, ?, ?)",
                     (device_id, previous_status, status, now),
                 )
+
+                # Create a notification for status transitions (e.g., device came online)
+                try:
+                    if status == 'online':
+                        title = f"Device Online: {device.name if device else device_id}"
+                        message = f"{device.name if device else 'Device'} ({device.ip_address if device else ''}) is now online."
+                        # insert notification
+                        conn.execute(
+                            "INSERT INTO notifications (title, message, related_device_id, severity, created_at) VALUES (?, ?, ?, ?, ?)",
+                            (title, message, device_id, 'info', now),
+                        )
+                    elif status == 'offline':
+                        title = f"Device Offline: {device.name if device else device_id}"
+                        message = f"{device.name if device else 'Device'} ({device.ip_address if device else ''}) is now offline."
+                        conn.execute(
+                            "INSERT INTO notifications (title, message, related_device_id, severity, created_at) VALUES (?, ?, ?, ?, ?)",
+                            (title, message, device_id, 'critical', now),
+                        )
+                except Exception:
+                    # Don't let notification failures block recording ping results
+                    pass
 
             normalized_latency = float(latency_ms) if latency_ms is not None else 0.0
             conn.execute(
@@ -364,6 +402,18 @@ class DeviceManager:
             conn.commit()
             user_id = cursor.lastrowid
 
+        # Create a notification for admin about new user registration
+        try:
+            now = self._timestamp()
+            with self._connect() as conn2:
+                conn2.execute(
+                    "INSERT INTO notifications (title, message, severity, created_at) VALUES (?, ?, ?, ?)",
+                    ("New User Registered", f"User '{username}' registered with role '{role}'", 'info', now),
+                )
+                conn2.commit()
+        except Exception:
+            pass
+
         return {
             'id': user_id,
             'username': username,
@@ -380,6 +430,68 @@ class DeviceManager:
         with self._connect() as conn:
             rows = conn.execute("SELECT id, username, display_name, phone_number, role, mfa_enabled, created_at, last_login_at FROM users ORDER BY username").fetchall()
         return [dict(row) for row in rows]
+
+    def update_user_role(self, user_id: int, role: str) -> dict:
+        now = self._timestamp()
+        with self._connect() as conn:
+            conn.execute("UPDATE users SET role = ? WHERE id = ?", (role, user_id))
+            conn.commit()
+        user = self.get_user_by_id(user_id)
+        try:
+            # notify about role change
+            with self._connect() as conn2:
+                conn2.execute(
+                    "INSERT INTO notifications (title, message, severity, created_at) VALUES (?, ?, ?, ?)",
+                    ("User Role Updated", f"User '{user.get('username')}' role set to '{role}'", 'info', now),
+                )
+                conn2.commit()
+        except Exception:
+            pass
+        return user
+
+    def get_notifications(self, limit: int = 50) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute("SELECT * FROM notifications ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+        return [dict(row) for row in rows]
+
+    def acknowledge_notification(self, notification_id: int) -> None:
+        now = self._timestamp()
+        with self._connect() as conn:
+            conn.execute("UPDATE notifications SET is_acknowledged = 1, acknowledged_at = ? WHERE id = ?", (now, notification_id))
+            conn.commit()
+
+    def escalate_unacknowledged_notifications(self, older_than_minutes: int = 5) -> int:
+        """
+        Find critical, unacknowledged notifications older than `older_than_minutes` and create escalation notices.
+        Marks the original notification as escalated to avoid duplicate escalations.
+
+        Returns the number of escalations created.
+        """
+        now = self._timestamp()
+        escalated_count = 0
+        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=older_than_minutes)).replace(microsecond=0).isoformat()
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id, title, message, related_device_id, created_at FROM notifications WHERE severity = 'critical' AND is_acknowledged = 0 AND (escalated IS NULL OR escalated = 0) AND created_at < ?",
+                (cutoff,)
+            ).fetchall()
+            for row in rows:
+                nid = row['id']
+                title = f"Escalation: {row['title'] or 'Critical Notification'}"
+                message = f"Escalation triggered for: {row['message']}"
+                related = row['related_device_id']
+                try:
+                    conn.execute(
+                        "INSERT INTO notifications (title, message, related_device_id, severity, created_at) VALUES (?, ?, ?, ?, ?)",
+                        (title, message, related, 'critical', now),
+                    )
+                    conn.execute("UPDATE notifications SET escalated = 1 WHERE id = ?", (nid,))
+                    escalated_count += 1
+                except Exception:
+                    # continue on error
+                    continue
+            conn.commit()
+        return escalated_count
 
     def update_user_last_login(self, user_id: int) -> None:
         now = self._timestamp()
@@ -675,6 +787,8 @@ class DeviceManager:
             conn.execute("ALTER TABLE users ADD COLUMN mfa_secret TEXT NOT NULL DEFAULT ''")
         if 'backup_code_hash' not in columns:
             conn.execute("ALTER TABLE users ADD COLUMN backup_code_hash TEXT")
+        if 'role' not in columns:
+            conn.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'operator'")
         conn.commit()
 
     @staticmethod
@@ -698,5 +812,5 @@ class DeviceManager:
             raise ValueError("Username must be a non-empty string")
         if not isinstance(password, str) or len(password) < 8:
             raise ValueError("Password must be at least 8 characters")
-        if role not in ('admin', 'operator'):
-            raise ValueError("Role must be 'admin' or 'operator'")
+        if role not in ('admin', 'operator', 'network_engineer', 'viewer'):
+            raise ValueError("Role must be one of: 'admin', 'operator', 'network_engineer', 'viewer'")

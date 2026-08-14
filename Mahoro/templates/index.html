@@ -22,6 +22,9 @@
                     <button class="nav-btn" data-tab="devices">Devices</button>
                     <button class="nav-btn" data-tab="analytics">Analytics</button>
                     <button class="nav-btn" data-tab="alerts">Alerts</button>
+                    {% if role == 'admin' %}
+                    <button class="nav-btn" data-tab="users">Users</button>
+                    {% endif %}
                 </div>
                 <div class="navbar-status">
                     <span class="status-dot online"></span> Network OK
@@ -34,6 +37,7 @@
                     {% else %}
                     <span class="status-badge offline">Operator</span>
                     {% endif %}
+                    <button id="openNotificationsBtn" class="btn btn-secondary" title="Notifications">🔔</button>
                     <a class="btn btn-secondary" href="{{ url_for('logout') }}">Logout</a>
                 </div>
             </div>
@@ -270,6 +274,17 @@
                     </div>
                 </div>
             </section>
+
+            <!-- Users Tab (Admin Only) -->
+            <section id="users-tab" class="tab-content">
+                <div class="card">
+                    <h2>Registered Users</h2>
+                    <p class="auth-note">Admins can view all users, change roles, and review last login activity.</p>
+                    <div id="usersPanel">
+                        <p class="loading">Loading users...</p>
+                    </div>
+                </div>
+            </section>
         </div>
     </div>
 
@@ -301,6 +316,17 @@
                 </div>
                 <button type="submit" class="btn btn-primary btn-full">Create Group</button>
             </form>
+        </div>
+    </div>
+
+    <!-- Notifications Modal -->
+    <div id="notificationsModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>Notifications</h2>
+            <div id="notificationsList" style="margin-top: 12px;">
+                <p class="loading">Loading notifications...</p>
+            </div>
         </div>
     </div>
 
