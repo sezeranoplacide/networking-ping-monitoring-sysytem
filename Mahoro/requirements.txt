@@ -1,3 +1,9 @@
 Flask==3.0.0
 Flask-CORS==4.0.0
 pyotp==2.9.0
+
+# Desktop application
+pywebview==6.2.1
+
+# Test tooling — the suite could not be run from a clean checkout without it.
+pytest==8.3.4

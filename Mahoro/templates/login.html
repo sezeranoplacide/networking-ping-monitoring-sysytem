@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - Network Monitor System</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ asset('style.css') }}">
+    <script src="{{ asset('theme.js') }}"></script>
 </head>
 <body>
     <div class="auth-page">
@@ -14,15 +15,23 @@
                 <div class="message error">{{ message }}</div>
             {% endif %}
             <form method="POST" class="auth-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <label for="username">Username</label>
                 <input id="username" name="username" type="text" required>
                 <label for="password">Password</label>
                 <input id="password" name="password" type="password" required>
-                <label for="auth_code">MFA Code (optional)</label>
-                <input id="auth_code" name="auth_code" type="text" placeholder="Leave blank if you do not use MFA">
+                <label for="auth_code">Authenticator code</label>
+                <input id="auth_code" name="auth_code" type="text" inputmode="numeric"
+                       autocomplete="one-time-code"
+                       placeholder="6-digit code, or a backup code">
                 <button type="submit" class="btn btn-primary btn-full">Login</button>
             </form>
             <p class="auth-note">New user? <a href="{{ url_for('register') }}">Create an account</a></p>
+            {% if first_run_hint %}
+            <p class="auth-note"><strong>First run.</strong> The generated sign-in details are in<br>
+                <code>{{ first_run_hint }}</code><br>
+                Change the password after signing in; the file is then removed.</p>
+            {% endif %}
             <p class="auth-note">If you lose access to your authenticator app, use the backup code shown at registration.</p>
         </div>
     </div>

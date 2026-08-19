@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Register - Network Monitor System</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ asset('style.css') }}">
+    <script src="{{ asset('theme.js') }}"></script>
 </head>
 <body>
     <div class="auth-page">
@@ -22,6 +23,7 @@
                 <a href="{{ url_for('login') }}" class="btn btn-primary btn-full">Proceed to Login</a>
             {% else %}
                 <form method="POST" class="auth-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <label for="username">Username</label>
                     <input id="username" name="username" type="text" required>
                     <label for="display_name">Display Name</label>

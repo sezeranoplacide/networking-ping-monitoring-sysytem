@@ -1,0 +1,32 @@
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Application database — contains password hashes and MFA secrets.
+# Never commit. See SYSTEM_AUDIT.md finding C4.
+ping_monitor/data/*.sqlite3
+ping_monitor/data/*.sqlite3-journal
+ping_monitor/data/*.sqlite3-wal
+ping_monitor/data/*.sqlite3-shm
+*.pre-audit-backup
+
+# Runtime secrets
+ping_monitor/data/.secret_key
+.env
+
+# Test and tooling caches
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

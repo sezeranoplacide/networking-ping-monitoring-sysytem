@@ -1,0 +1,45 @@
+# Repository root. Mahoro/.gitignore covers the application subtree; this file
+# covers everything that must never leave this machine.
+
+# ---------------------------------------------------------------- secrets
+# The database holds password hashes and plaintext TOTP secrets. It was committed
+# once already — see Mahoro/SYSTEM_AUDIT.md finding C4 — and must not be again.
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
+*.pre-audit-backup
+.secret_key
+first-run-password.txt
+.env
+
+# Full-history backups taken before rewriting git history. These contain every
+# commit, including the ones carrying the database, so pushing one would republish
+# exactly the secrets a rewrite is meant to remove.
+*.bundle
+
+# ---------------------------------------------------------------- build output
+build/
+dist/
+*.spec.bak
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# ---------------------------------------------------------------- environments
+.venv/
+venv/
+env/
+
+# ---------------------------------------------------------------- tooling
+.pytest_cache/
+.coverage
+htmlcov/
+node_modules/
+
+# ---------------------------------------------------------------- editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini

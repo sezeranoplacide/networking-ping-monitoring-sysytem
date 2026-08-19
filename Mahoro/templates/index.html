@@ -4,8 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title> Ping Monitor - Network Management System</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="{{ asset('style.css') }}">
+    <script src="{{ asset('theme.js') }}"></script>
+    <!-- Self-hosted: a tool for diagnosing network failure must not lose half its
+         interface when the network fails, or on an isolated management VLAN. -->
+    <script src="{{ asset('chart.umd.min.js') }}"></script>
 </head>
 <body>
     <div class="app">
@@ -14,30 +17,36 @@
         <nav class="navbar">
             <div class="navbar-container">
                 <div class="navbar-brand">
-                    <span class="brand-icon">📡</span>
+                    <span class="brand-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.9 16.1C1 12.2 1 5.8 4.9 1.9"/><path d="M7.8 4.7a6.14 6.14 0 0 0-.8 7.5"/><circle cx="12" cy="9" r="2"/><path d="M16.2 4.8c2 2 2.26 5.11.8 7.47"/><path d="M19.1 1.9a9.96 9.96 0 0 1 0 14.1"/><path d="M9.5 18h5"/><path d="m8 22 4-11 4 11"/></svg></span>
                     <span class="brand-text">Network Monitor System</span>
                 </div>
                 <div class="navbar-menu">
                     <button class="nav-btn active" data-tab="dashboard">Dashboard</button>
                     <button class="nav-btn" data-tab="devices">Devices</button>
                     <button class="nav-btn" data-tab="analytics">Analytics</button>
+                    <button class="nav-btn" data-tab="diagnostics">Diagnostics</button>
                     <button class="nav-btn" data-tab="alerts">Alerts</button>
                     {% if role == 'admin' %}
                     <button class="nav-btn" data-tab="users">Users</button>
                     {% endif %}
                 </div>
-                <div class="navbar-status">
-                    <span class="status-dot online"></span> Network OK
+                <div class="navbar-status" id="networkStatus">
+                    <span class="status-dot unknown" id="networkStatusDot"></span>
+                    <span id="networkStatusText">Checking…</span>
                 </div>
                 <div class="user-panel">
                     <span class="user-name">{{ username or 'Guest' }}</span>
                     <span class="user-role">{{ role or 'operator' }}</span>
-                    {% if role == 'admin' %}
-                    <span class="status-badge online">Admin</span>
-                    {% else %}
-                    <span class="status-badge offline">Operator</span>
-                    {% endif %}
-                    <button id="openNotificationsBtn" class="btn btn-secondary" title="Notifications">🔔</button>
+                    <span class="status-badge {{ 'online' if role == 'admin' else 'neutral' }}">
+                        {{ (role or 'operator').replace('_', ' ')|title }}
+                    </span>
+                    <button id="openAccountBtn" class="btn btn-sm" title="Account settings">Account</button>
+                    <div class="theme-toggle" role="group" aria-label="Colour theme">
+                        <button type="button" data-theme-choice="light" title="Light" aria-label="Light theme"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.4v2.2M12 19.4v2.2M2.4 12h2.2M19.4 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg></button>
+                        <button type="button" data-theme-choice="dark" title="Dark" aria-label="Dark theme"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M20.5 14.6A8.6 8.6 0 1 1 9.4 3.5a6.9 6.9 0 0 0 11.1 11.1z"/></svg></button>
+                        <button type="button" data-theme-choice="system" title="Match system" aria-label="Match system theme"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="2.6" y="4.4" width="18.8" height="12.4" rx="1.5"/><path d="M8.6 20.2h6.8" stroke-linecap="round"/></svg></button>
+                    </div>
+                    <button id="openNotificationsBtn" class="btn btn-sm" title="Notifications">Alerts</button>
                     <a class="btn btn-secondary" href="{{ url_for('logout') }}">Logout</a>
                 </div>
             </div>
@@ -47,48 +56,58 @@
         <div class="container">
             <!-- Dashboard Tab -->
             <section id="dashboard-tab" class="tab-content active">
-                <!-- Network Summary -->
+                <div id="securityBar" class="incident-bar" role="alert"></div>
+                <div id="incidentBar" class="incident-bar" role="status" aria-live="polite"></div>
+
+                <div class="card topology-card">
+                    <div class="topology-head">
+                        <h2>Network Map</h2>
+                        <div class="topology-legend">
+                            <span><i class="status-dot online"></i> Responding</span>
+                            <span><i class="status-dot offline"></i> Down</span>
+                            <span><i class="status-dot unreachable"></i> Cut off by an uplink</span>
+                            <span><i class="status-dot unknown"></i> Not yet polled</span>
+                        </div>
+                    </div>
+                    <div class="topology-viewport" id="topologyViewport">
+                        <p class="loading" style="padding-left:6px">Drawing the network…</p>
+                    </div>
+                </div>
+
                 <div class="section-title">Network Overview</div>
-                <p class="auth-note" style="margin-bottom: 16px;">Monitor your entire network from one place: status, latency, groups, and alerts are shown here for quick review.</p>
                 <div class="summary-grid">
                     <div class="summary-card">
-                        <div class="summary-icon total">📊</div>
-                        <div class="summary-info">
+                        <div>
                             <div class="summary-label">Total Devices</div>
                             <div class="summary-value" id="totalDevices">0</div>
                         </div>
                     </div>
                     <div class="summary-card">
-                        <div class="summary-icon online">✓</div>
-                        <div class="summary-info">
+                        <div>
                             <div class="summary-label">Online</div>
                             <div class="summary-value" id="onlineCount">0</div>
                         </div>
                     </div>
                     <div class="summary-card">
-                        <div class="summary-icon offline">✕</div>
-                        <div class="summary-info">
+                        <div>
                             <div class="summary-label">Offline</div>
                             <div class="summary-value" id="offlineCount">0</div>
                         </div>
                     </div>
                     <div class="summary-card">
-                        <div class="summary-icon health">❤️</div>
-                        <div class="summary-info">
+                        <div>
                             <div class="summary-label">Network Health</div>
                             <div class="summary-value" id="networkHealth">0%</div>
                         </div>
                     </div>
                     <div class="summary-card">
-                        <div class="summary-icon latency">⚡</div>
-                        <div class="summary-info">
+                        <div>
                             <div class="summary-label">Avg Latency</div>
                             <div class="summary-value" id="avgLatency">0ms</div>
                         </div>
                     </div>
                     <div class="summary-card">
-                        <div class="summary-icon alerts">⚠️</div>
-                        <div class="summary-info">
+                        <div>
                             <div class="summary-label">Active Alerts</div>
                             <div class="summary-value" id="alertCount">0</div>
                         </div>
@@ -136,9 +155,10 @@
                     <h3>Network Gateway Setup</h3>
                     <div class="monitoring-fields">
                         <input id="networkGatewayInput" type="text" placeholder="e.g. 192.168.1.254">
-                        <button id="saveGatewayBtn" class="btn btn-primary">Save Gateway</button>
+                        <button id="saveGatewayBtn" class="btn btn-primary">Save</button>
+                        <button id="detectGatewayBtn" class="btn" type="button">Detect</button>
                     </div>
-                    <p id="gatewayStatus" class="auth-note">Set the main gateway IP to guide network checks.</p>
+                    <p id="gatewayStatus" class="auth-note">The boundary between your network and everything upstream. Diagnostics test it first, so a fault can be placed inside your network or beyond it.</p>
                 </div>
                 {% endif %}
 
@@ -168,36 +188,10 @@
             <!-- Devices Tab -->
             <section id="devices-tab" class="tab-content">
                 {% if role == 'admin' %}
-                <!-- Add Device Section -->
-                <div class="card add-device-section">
-                    <h2>Add New Device to Monitor</h2>
-                    <p class="auth-note">Add a device using its IP address and it will appear automatically in the monitored devices list below.</p>
-                    <form id="deviceForm" class="form-grid">
-                        <div class="form-group">
-                            <label for="deviceName">Device Name *</label>
-                            <input type="text" id="deviceName" placeholder="e.g., Main Router" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="deviceIP">IP Address *</label>
-                            <input type="text" id="deviceIP" placeholder="e.g., 192.168.1.1" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="deviceGroup">Group</label>
-                            <select id="deviceGroup">
-                                <option value="">-- No Group --</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="deviceInterval">Ping Interval (s)</label>
-                            <input type="number" id="deviceInterval" value="5" min="1" max="300">
-                        </div>
-                        <div class="form-group">
-                            <label for="deviceTimeout">Timeout (s)</label>
-                            <input type="number" id="deviceTimeout" value="2" min="1" max="10">
-                        </div>
-                        <button type="submit" class="btn btn-primary btn-full">Add Device to Network</button>
-                    </form>
-                    <div id="formMessage" class="message"></div>
+                <div class="toolbar">
+                    <div class="section-title">Monitored Devices</div>
+                    <div class="spacer"></div>
+                    <button id="addDeviceBtn" class="btn btn-primary" type="button">Add device</button>
                 </div>
                 {% endif %}
                 <div class="card device-filter-card">
@@ -258,6 +252,62 @@
                 </div>
             </section>
 
+            <!-- Diagnostics Tab -->
+            <section id="diagnostics-tab" class="tab-content">
+                <div class="card">
+                    <h2>Target</h2>
+                    <div class="filters-row">
+                        <div class="form-group">
+                            <label for="diagDevice">Monitored device</label>
+                            <select id="diagDevice"></select>
+                        </div>
+                        <div class="form-group">
+                            <label for="diagTarget">Or any address</label>
+                            <input type="text" id="diagTarget" placeholder="192.168.1.1 or host.example.com">
+                        </div>
+                        <div class="form-group" style="max-width:130px">
+                            <label for="diagPort">Port</label>
+                            <input type="number" id="diagPort" min="1" max="65535" placeholder="443">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>Checks</h2>
+                    <p class="auth-note" style="margin-bottom:14px">Each one runs on the server and shows you the command it used. Nothing to type, nothing to remember.</p>
+                    <div id="diagOperations" class="diag-grid"></div>
+                </div>
+
+                <div class="card" id="consoleCard" hidden>
+                    <div class="toolbar">
+                        <div class="section-title">Console</div>
+                        <span class="status-badge neutral" id="consoleMode">desktop only</span>
+                        <div class="spacer"></div>
+                        <span class="field-hint" id="consoleCwd"></span>
+                    </div>
+                    <div id="consoleSnippets" class="console-snippets"></div>
+                    <form id="consoleForm" class="console-input">
+                        <span class="console-prompt">&gt;</span>
+                        <input type="text" id="consoleCommand" autocomplete="off"
+                               spellcheck="false"
+                               placeholder="Any command you would type in a terminal — ↑ for history">
+                        <button type="submit" class="btn btn-primary" id="consoleRun">Run</button>
+                    </form>
+                    <p class="auth-note" id="consoleNote"></p>
+                </div>
+
+                <div class="card">
+                    <div class="toolbar">
+                        <div class="section-title">Scratchpad</div>
+                        <div class="spacer"></div>
+                        <button id="diagClear" class="btn btn-sm" type="button">Clear</button>
+                    </div>
+                    <div id="diagLog" class="diag-log">
+                        <p class="loading">Pick a target, then run a check. Results collect here, newest first.</p>
+                    </div>
+                </div>
+            </section>
+
             <!-- Alerts Tab -->
             <section id="alerts-tab" class="tab-content">
                 <div class="alerts-container">
@@ -288,6 +338,54 @@
         </div>
     </div>
 
+    <!-- Add / Edit Device -->
+    <div id="deviceFormModal" class="modal">
+        <div class="modal-content">
+            <button class="close" type="button" aria-label="Close">&times;</button>
+            <h2 id="deviceFormTitle">Add device</h2>
+            <p class="auth-note" id="deviceFormIntro">Pick what the device is and what it plugs into. That uplink is what lets the map show where a fault actually is.</p>
+            <form id="deviceForm">
+                <div class="form-grid" style="margin-top:18px">
+                    <div class="form-group">
+                        <label for="deviceName">Name</label>
+                        <input type="text" id="deviceName" placeholder="Core switch" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="deviceIP">Address</label>
+                        <input type="text" id="deviceIP" placeholder="192.168.1.1" required>
+                        <span class="field-hint">IPv4, IPv6 or a hostname.</span>
+                    </div>
+                    <div class="form-group">
+                        <label for="deviceType">Type</label>
+                        <select id="deviceType" required></select>
+                    </div>
+                    <div class="form-group">
+                        <label for="deviceParent">Connects to</label>
+                        <select id="deviceParent"></select>
+                        <span class="field-hint" id="deviceParentHint">The switch or router this device plugs into.</span>
+                    </div>
+                    <div class="form-group">
+                        <label for="deviceGroup">Group</label>
+                        <select id="deviceGroup"><option value="">No group</option></select>
+                    </div>
+                    <div class="form-group">
+                        <label for="deviceInterval">Ping every (s)</label>
+                        <input type="number" id="deviceInterval" value="5" min="1" max="300">
+                    </div>
+                    <div class="form-group">
+                        <label for="deviceTimeout">Timeout (s)</label>
+                        <input type="number" id="deviceTimeout" value="2" min="1" max="10">
+                    </div>
+                </div>
+                <div id="formMessage" class="message"></div>
+                <div class="modal-actions">
+                    <button type="button" class="btn" data-close-modal>Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="deviceFormSubmit">Add device</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Device Detail Modal -->
     <div id="deviceModal" class="modal">
         <div class="modal-content">
@@ -312,10 +410,35 @@
                 </div>
                 <div class="form-group">
                     <label for="groupColor">Color</label>
-                    <input type="color" id="groupColor" value="#667eea">
+                    <input type="color" id="groupColor" value="#0E6E8C">
                 </div>
                 <button type="submit" class="btn btn-primary btn-full">Create Group</button>
             </form>
+        </div>
+    </div>
+
+    <!-- Account Modal -->
+    <div id="accountModal" class="modal">
+        <div class="modal-content">
+            <button class="close" type="button" aria-label="Close">&times;</button>
+            <h2>Change password</h2>
+            <p class="auth-note">At least 12 characters. You will stay signed in.</p>
+            <form id="passwordForm" class="auth-form">
+                <div class="form-group">
+                    <label for="currentPassword">Current password</label>
+                    <input type="password" id="currentPassword" autocomplete="current-password" required>
+                </div>
+                <div class="form-group">
+                    <label for="newPassword">New password</label>
+                    <input type="password" id="newPassword" autocomplete="new-password" minlength="12" required>
+                </div>
+                <div class="form-group">
+                    <label for="confirmPassword">Confirm new password</label>
+                    <input type="password" id="confirmPassword" autocomplete="new-password" minlength="12" required>
+                </div>
+                <button type="submit" class="btn btn-primary btn-full">Update password</button>
+            </form>
+            <div id="passwordMessage" class="message"></div>
         </div>
     </div>
 
@@ -330,7 +453,10 @@
         </div>
     </div>
 
-    <script src="{{ url_for('static', filename='app.js') }}"></script>
+    <script src="{{ asset('render.js') }}"></script>
+    <script src="{{ asset('topology.js') }}"></script>
+    <script src="{{ asset('diagnostics.js') }}"></script>
+    <script src="{{ asset('app.js') }}"></script>
 </body>
 </html>
 
